@@ -1,1 +1,6 @@
 git+https://github.com/martindurant/distributed.git@shared_plasma
+psutil
+pyarrow
+python-lmdb
+vineyard
+pytest
