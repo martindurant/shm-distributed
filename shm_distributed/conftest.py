@@ -1,6 +1,7 @@
 import os
 import subprocess
 import shlex
+import time
 
 import pytest
 
@@ -23,9 +24,9 @@ path = "/tmp/plasma"
 @pytest.fixture(scope="module")
 def plasma_process():
     pytest.importorskip("pyarrow.plasma")
-    cmd = shlex.split(f"plasma-store-server -m 10000000 -s {path}")  # 10MB
-    proc = subprocess.Popen(cmd)
-    yield
+    cmd = shlex.split(f"plasma-store-server -m 10000000000 -s {path}")  # 10MB
+    proc = subprocess.Popen(cmd, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    yield proc
     proc.terminate()
     proc.wait()
 
