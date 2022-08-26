@@ -74,7 +74,7 @@ def worker_scatter_workflow(client: distributed.Client):
 
 @pytest.mark.parametrize("ser", ["pickle", "lmdb", "plasma"])
 @pytest.mark.parametrize("workflow", [client_scatter_workflow, worker_scatter_workflow])
-def test_workflow_lmdb_scatter(ser, workflow, lmdb_deleter, plasma_session):
+def test_workflow(ser, workflow, lmdb_deleter, plasma_session):
     client = distributed.Client(
         n_workers=4,
         threads_per_worker=1,
