@@ -72,9 +72,9 @@ def worker_scatter_workflow(client: distributed.Client):
     return f, result
 
 
-@pytest.mark.parametrize("ser", ["pickle", "lmdb", "plasma"])
+@pytest.mark.parametrize("ser", ["pickle", "plasma", "vineyard"])
 @pytest.mark.parametrize("workflow", [client_scatter_workflow, worker_scatter_workflow])
-def test_workflow(ser, workflow, lmdb_deleter, plasma_session):
+def test_workflow(ser, workflow, lmdb_deleter, plasma_session, vineyard_session):
     client = distributed.Client(
         n_workers=4,
         threads_per_worker=1,
@@ -84,9 +84,9 @@ def test_workflow(ser, workflow, lmdb_deleter, plasma_session):
 
     # ensure our config got through
     pids = list(client.run(os.getpid).values()) + [os.getpid()]
-    if ser == "plasma":
+    if ser == "plasma" or ser == "vineyard":
         for proc in psutil.process_iter():
-            if "plasma" in proc.name().lower():
+            if "plasma" in proc.name().lower() or "vineyard" in proc.name().lower():
                 pids.append(proc.pid)
                 break
     start_mem = memories(pids)
