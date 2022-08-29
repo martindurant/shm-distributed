@@ -72,8 +72,8 @@ def worker_scatter_workflow(client: distributed.Client):
     return f, result
 
 
-@pytest.mark.parametrize("ser", ["pickle", "plasma", "vineyard"])
-@pytest.mark.parametrize("workflow", [client_scatter_workflow, worker_scatter_workflow])
+@pytest.mark.parametrize("ser", ["pickle", "lmdb", "plasma", "vineyard"])
+@pytest.mark.parametrize("workflow", [worker_scatter_workflow, client_scatter_workflow])
 def test_workflow(ser, workflow, lmdb_deleter, plasma_session, vineyard_session):
     client = distributed.Client(
         n_workers=4,
@@ -83,28 +83,31 @@ def test_workflow(ser, workflow, lmdb_deleter, plasma_session, vineyard_session)
     )
 
     # ensure our config got through
-    pids = list(client.run(os.getpid).values()) + [os.getpid()]
-    if ser == "plasma" or ser == "vineyard":
-        for proc in psutil.process_iter():
-            if "plasma" in proc.name().lower() or "vineyard" in proc.name().lower():
-                pids.append(proc.pid)
-                break
-    start_mem = memories(pids)
-    mem0 = psutil.virtual_memory().used
-    start_time = time.time()
+    _ = None
+    try:
+        pids = list(client.run(os.getpid).values()) + [os.getpid()]
+        if ser == "plasma" or ser == "vineyard":
+            for proc in psutil.process_iter():
+                if "plasma" in proc.name().lower() or "vineyard" in proc.name().lower():
+                    pids.append(proc.pid)
+                    break
+        start_mem = memories(pids)
+        mem0 = psutil.virtual_memory().used
+        start_time = time.time()
 
-    _ = workflow(client)
-    time.sleep(1)
+        _ = workflow(client)
+        time.sleep(1)
 
-    end_mem = memories(pids)
-    mem1 = psutil.virtual_memory().used
-    end_time = time.time() - 1
+        end_mem = memories(pids)
+        mem1 = psutil.virtual_memory().used
+        end_time = time.time() - 1
 
-    del _
+    finally:
+        del _
 
-    client.close()
+        client.close()
 
     print(f"{end_time - start_time:03f}s")
     print("Start:", round(start_mem["rss"] / 2**20), "resident,", round(start_mem["uss"] / 2**20), "unique")
-    print("Start:", round(end_mem["rss"] / 2**20), "resident,", round(end_mem["uss"] / 2**20), "unique")
+    print("End:", round(end_mem["rss"] / 2**20), "resident,", round(end_mem["uss"] / 2**20), "unique")
     print("Δmem:", round((mem1 - mem0) / 2**20))

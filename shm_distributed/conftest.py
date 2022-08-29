@@ -13,7 +13,7 @@ lmdb_path = "/tmp/lmdb"
 vineyard_path = "/tmp/vineyard.sock"
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def lmdb_deleter():
     import shutil
     try:
