@@ -1,0 +1,1 @@
+pytest shm_distributed/test_runs.py::test_workflow -s -v 2>&1 | grep "###"
