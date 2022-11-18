@@ -63,7 +63,7 @@ def vineyard_process():
     pytest.importorskip("vineyard")
     cmd = [sys.executable, '-m', 'vineyard',
            '--socket', vineyard_path,
-           '--size', '10000000000',
+           '--size', '8331042816',
            '--meta', 'local']
     proc = subprocess.Popen(cmd)
     yield

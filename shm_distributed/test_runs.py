@@ -4,6 +4,8 @@ import psutil
 import pytest
 import time
 
+import dask
+import dask.array as da
 import dask.dataframe as dd
 import distributed
 
@@ -60,33 +62,39 @@ def test_lmdb_create_many(lmdb_deleter, num):
 def client_scatter_workflow(client):
     data = np.empty(2**29, dtype="uint8")  # dropped at the end of this function
     f = client.scatter(data, broadcast=True)  # ephemeral ref in this process, which does not persist
-    distributed.wait(f)
     del data
-    return f  # be sure to capture return so that we don't clean up yet
+    f2 = client.submit(np.sum, client.map(lambda x, _: x[0], [f] * 6, list(range(6))))
+    return f2
 
 
 def worker_scatter_workflow(client: distributed.Client):
     f = client.submit(np.empty, 2**29, dtype="uint8")
     client.replicate(f)
-    distributed.wait(f)
-    distributed.wait(client.map(lambda x, _: x[0], [f] * 4, list(range(6))))
-    result = f.result()
-    return f, result
+    f2 = client.submit(np.sum, client.map(lambda x, _: x[0], [f] * 6, list(range(6))))
+    return f2
 
 
 def workflow_dataframe(client):
-    ddf = dd.read_parquet(
-        "/home/mdurant/data/bench/*.parquet",
-        engine="pyarrow",
+    ddf = dask.datasets.timeseries(
+        dtypes={"name": "category", "id": int, "x": float, "y": float},
+        freq="25ms"
     )
+    f = client.persist(ddf.set_index("y").groupby("name").agg({"x": "std"})).to_delayed()[0]
+    return client.submit(f)
 
-    return client.persist(ddf.set_index("id2").rechunk(12).groupby("id1", dropna=False, observed=True
-                                                                   ).agg({"v1": "sum"}))
+
+def workflow_array(client):
+    arr = da.ones(shape=(1000, 1000, 100), chunks=(200, 500, 50))
+    arr2 = arr.map_overlap(lambda x: x + x.size, depth=5, boundary='reflect').sum()
+    f = client.persist(arr2)
+    f = np.atleast_1d(f.to_delayed())[0]
+    return client.submit(f)
 
 
 @pytest.mark.parametrize("ser", ["pickle", "lmdb", "plasma", "vineyard"])
-@pytest.mark.parametrize("workflow", [workflow_dataframe, worker_scatter_workflow, client_scatter_workflow])
-def test_workflow(ser, workflow, lmdb_deleter, plasma_session, vineyard_session, repeat=2):
+@pytest.mark.parametrize("workflow", [workflow_dataframe, workflow_array,
+                                      worker_scatter_workflow, client_scatter_workflow])
+def test_workflow(ser, workflow, lmdb_deleter, plasma_session, vineyard_session, repeat=1):
     for _ in range(repeat):
         client = distributed.Client(
             n_workers=6,
@@ -97,34 +105,36 @@ def test_workflow(ser, workflow, lmdb_deleter, plasma_session, vineyard_session,
         )
 
         # ensure our config got through
-        _ = None
         try:
             pids = list(client.run(os.getpid).values()) + [os.getpid()]
             if ser == "plasma" or ser == "vineyard":
                 for proc in psutil.process_iter():
-                    if "plasma" in proc.name().lower() or "vineyard" in proc.name().lower():
-                        print("%%%", proc)
+                    if "plasma" in proc.name().lower() or "vine" in proc.name().lower():
                         pids.append(proc.pid)
                         break
             start_mem = memories(pids)
             mem0 = psutil.virtual_memory().used
             start_time = time.time()
 
-            _ = workflow(client)
-            time.sleep(1)
+            memmax = mem0
+            f = workflow(client)
+            while not f.done():
+                time.sleep(0.01)
+                mem1 = psutil.virtual_memory().used
+                if mem1 > memmax:
+                    memmax = mem1
 
             end_mem = memories(pids)
-            mem1 = psutil.virtual_memory().used
-            end_time = time.time() - 1
+            end_time = time.time()
 
         finally:
-            del _
-
             client.close()
+        time.sleep(7)  # cooldown time
 
     print("### ", ser, workflow.__name__)
     print(f"### {end_time - start_time:03f}s")
     print("### Start:", round(start_mem["rss"] / 2**20), "resident,", round(start_mem["uss"] / 2**20), "unique")
     print("### End:", round(end_mem["rss"] / 2**20), "resident,", round(end_mem["uss"] / 2**20), "unique")
     print("### Δmem:", round((mem1 - mem0) / 2**20))
+    print("### Δmem_max:", round((memmax - mem0) / 2**20))
     print("###")
